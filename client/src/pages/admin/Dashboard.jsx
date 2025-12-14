@@ -281,7 +281,7 @@ const AdminDashboard = () => {
 
                     {/* Manage Menu */}
                     <div className="bg-white p-6 rounded-lg shadow">
-                        <h3 className="text-lg font-medium text-gray-900 mb-4">Add Daily Menu</h3>
+                        <h3 className="text-lg font-medium text-gray-900 mb-4">Edit Daily Menu</h3>
                         <form onSubmit={handleCreateMenu} className="space-y-4">
                             <input
                                 type="date"
