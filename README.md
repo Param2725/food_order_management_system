@@ -2,6 +2,14 @@
 
 A comprehensive full-stack web application for managing food subscriptions, event catering orders, and customer interactions. The system provides role-based access for customers, employees, and administrators with a modern, responsive interface.
 
+## Screenshots
+
+### Home Page
+![Home Page](screenshots/home_page.png)
+
+### Menu Page
+![Menu Page](screenshots/menu_page.png)
+
 ## Features
 
 ### Customer Features
@@ -123,7 +131,7 @@ A comprehensive full-stack web application for managing food subscriptions, even
 ### Step 1: Clone the Repository
 ```bash
 git clone <repository-url>
-cd repository-name
+cd order1
 ```
 
 ### Step 2: Server Setup
@@ -224,7 +232,7 @@ cd repository-name
 ## Project Structure
 
 ```
-root/
+order1/
 ├── client/                 # Frontend React application
 │   ├── src/
 │   │   ├── components/    # Reusable React components
@@ -348,8 +356,14 @@ The application uses Razorpay for payment processing:
 4. Push to the branch (`git push origin feature/YourFeature`)
 5. Open a Pull Request
 
+## License
+
+This project is licensed under the ISC License.
+
 ## Support
 
 For issues or questions, please create an issue in the repository or contact the development team.
 
 ---
+
+**Developed with ❤️ using MERN Stack**
