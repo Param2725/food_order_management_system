@@ -193,7 +193,7 @@ const Cart = () => {
                                 return {
                                     name: item.name,
                                     quantity: item.quantity,
-                                    price: item.totalAmount,
+                                    price: item.price, // Per-unit price, not total
                                     selectedItems: item.menuItems,
                                     mealTime: item.mealTime
                                 };

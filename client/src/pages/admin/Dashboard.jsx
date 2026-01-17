@@ -637,8 +637,13 @@ const AdminDashboard = () => {
                                                             {order.user ? order.user.name : 'Unknown User'}
                                                         </p>
                                                         <p className="text-sm text-gray-500">
-                                                            {new Date(order.createdAt).toLocaleDateString()} at {new Date(order.createdAt).toLocaleTimeString()}
+                                                            Ordered: {new Date(order.createdAt).toLocaleDateString()} at {new Date(order.createdAt).toLocaleTimeString()}
                                                         </p>
+                                                        {order.deliveryDate && (
+                                                            <p className="text-sm text-orange-600 font-medium">
+                                                                Delivery Date: {new Date(order.deliveryDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            </p>
+                                                        )}
                                                         <p className="text-sm text-gray-500 mt-1">
                                                             Type: <span className="font-medium capitalize">{order.type.replace('_', ' ')}</span>
                                                         </p>
@@ -652,6 +657,15 @@ const AdminDashboard = () => {
                                                 </div>
                                                 <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded">
                                                     <p><strong>Items:</strong> {order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
+                                                    {/* Show menu items if available */}
+                                                    {order.items.some(i => i.selectedItems && i.selectedItems.length > 0) && (
+                                                        <p className="mt-1 text-gray-700">
+                                                            <strong>Menu:</strong> {order.items
+                                                                .filter(i => i.selectedItems && i.selectedItems.length > 0)
+                                                                .map(i => i.selectedItems.join(', '))
+                                                                .join(' | ')}
+                                                        </p>
+                                                    )}
                                                     {order.deliveryAddress && (
                                                         <p className="mt-1">
                                                             <strong>Delivery Address:</strong> {order.deliveryAddress.street}, {order.deliveryAddress.city}, {order.deliveryAddress.zip}

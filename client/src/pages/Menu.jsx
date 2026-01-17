@@ -16,6 +16,9 @@ const Menu = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [orderMealTime, setOrderMealTime] = useState('Lunch');
     const [orderQuantity, setOrderQuantity] = useState(1);
+    const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDateMenu, setSelectedDateMenu] = useState(null);
+    const [loadingSelectedMenu, setLoadingSelectedMenu] = useState(false);
     const { addToCart } = useContext(CartContext);
     const { showNotification } = useContext(NotificationContext);
     const navigate = useNavigate();
@@ -104,7 +107,35 @@ const Menu = () => {
 
     const sortedMenu = [...weeklyMenu].sort((a, b) => getDayIndex(a.date) - getDayIndex(b.date));
 
-    const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+    // Fetch menu for selected date
+    useEffect(() => {
+        const fetchSelectedDateMenu = async () => {
+            if (!orderDate) return;
+
+            setLoadingSelectedMenu(true);
+            try {
+                const selectedDate = new Date(orderDate);
+                selectedDate.setHours(0, 0, 0, 0);
+                const res = await axios.get(
+                    `http://localhost:5000/api/menu?date=${selectedDate.toISOString()}&planType=${selectedPlan}`
+                );
+                if (res.data.length > 0) {
+                    setSelectedDateMenu(res.data[0]);
+                } else {
+                    setSelectedDateMenu(null);
+                }
+            } catch (error) {
+                console.error('Error fetching selected date menu:', error);
+                setSelectedDateMenu(null);
+            } finally {
+                setLoadingSelectedMenu(false);
+            }
+        };
+
+        if (isModalOpen) {
+            fetchSelectedDateMenu();
+        }
+    }, [orderDate, selectedPlan, isModalOpen]);
 
     const handleOrderNow = () => {
         setOrderDate(new Date().toISOString().split('T')[0]); // Reset to today
@@ -129,6 +160,12 @@ const Menu = () => {
             return;
         }
 
+        // Use selected date's menu instead of today's menu
+        if (!selectedDateMenu) {
+            showNotification('Menu not available for selected date', 'error');
+            return;
+        }
+
         const price = PLAN_PRICES[selectedPlan];
         const totalAmount = (price * orderQuantity) + 100; // 100 Delivery Charge
 
@@ -142,7 +179,7 @@ const Menu = () => {
             price: price,
             deliveryCharge: 100,
             totalAmount: totalAmount,
-            menuItems: todaysMenu.items[orderMealTime.toLowerCase()],
+            menuItems: selectedDateMenu.items[orderMealTime.toLowerCase()],
             deliveryDate: orderDate // Pass selected date
         };
 
@@ -350,6 +387,24 @@ const Menu = () => {
                                                     </label>
                                                 </div>
                                             </div>
+
+                                            {/* Menu Preview for Selected Date */}
+                                            {loadingSelectedMenu ? (
+                                                <div className="text-center text-sm text-gray-500">Loading menu...</div>
+                                            ) : selectedDateMenu ? (
+                                                <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
+                                                    <p className="text-xs font-semibold text-orange-800 uppercase mb-2">
+                                                        Menu for {new Date(orderDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                                    </p>
+                                                    <p className="text-sm text-gray-700">
+                                                        <strong>{orderMealTime}:</strong> {selectedDateMenu.items[orderMealTime.toLowerCase()].join(', ')}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                                                    <p className="text-sm text-red-700">No menu available for this date</p>
+                                                </div>
+                                            )}
 
                                             {/* 12-Hour Window Warning */}
                                             {(() => {

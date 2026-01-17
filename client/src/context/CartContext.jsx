@@ -24,7 +24,7 @@ export const CartProvider = ({ children }) => {
                     i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
                 );
             } else {
-                return [...prevItems, { ...item, quantity: 1 }];
+                return [...prevItems, item]; // Preserve the item's quantity as passed
             }
         });
     };
