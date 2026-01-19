@@ -8,7 +8,10 @@ const {
     verifyRenewal,
     getMySubscription,
     getAllSubscriptions,
-    adminCancelSubscription
+    adminCancelSubscription,
+    getAvailableUpgrades,
+    upgradeSubscription,
+    verifyUpgrade
 } = require('../controllers/subscriptionController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
@@ -23,5 +26,8 @@ router.route('/cancel').post(protect, cancelSubscription);
 router.route('/renew-init').post(protect, renewSubscription);
 router.route('/renew-verify').post(protect, verifyRenewal);
 router.route('/me').get(protect, getMySubscription);
+router.route('/available-upgrades').get(protect, getAvailableUpgrades);
+router.route('/upgrade-init').post(protect, upgradeSubscription);
+router.route('/upgrade-verify').post(protect, verifyUpgrade);
 
 module.exports = router;

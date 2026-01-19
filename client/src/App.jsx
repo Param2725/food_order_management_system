@@ -13,6 +13,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Cart from './pages/Cart';
 import Profile from './pages/Profile';
+import MySubscription from './pages/MySubscription';
 
 import Orders from './pages/Orders';
 import EventCatering from './pages/EventCatering';
@@ -44,6 +45,7 @@ function App() {
                 <Route path="/events" element={<EventCatering />} />
                 <Route path="/complaints" element={<Complaints />} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/my-subscription" element={<ProtectedRoute><MySubscription /></ProtectedRoute>} />
                 <Route
                   path="/admin"
                   element={

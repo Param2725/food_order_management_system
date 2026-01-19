@@ -135,16 +135,22 @@ const Orders = () => {
         return <div className="text-center py-10">Loading orders...</div>;
     }
 
+    // Filter out subscription orders (they have their own page now)
+    const filteredOrders = orders.filter(order =>
+        order.type !== 'subscription_purchase' &&
+        order.type !== 'subscription_upgrade'
+    );
+
     return (
         <div className="bg-gray-50 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-3xl font-extrabold text-gray-900 mb-8">Order History</h2>
 
-                {orders.length === 0 ? (
+                {filteredOrders.length === 0 ? (
                     <div className="text-center py-10 text-gray-500">No orders found.</div>
                 ) : (
                     <div className="space-y-6">
-                        {orders.map((order) => (
+                        {filteredOrders.map((order) => (
                             <div key={order._id} className="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
                                 <div className="px-4 py-5 sm:px-6 flex justify-between items-center bg-gray-50">
                                     <div>
