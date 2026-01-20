@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
+import { AlertCircle } from 'lucide-react';
 import AuthContext from '../context/AuthContext';
 import NotificationContext from '../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
@@ -44,8 +45,16 @@ const Orders = () => {
         };
     }, [user]);
 
-    const handleCancelSubscription = async (subscriptionId) => {
-        if (!window.confirm('Are you sure you want to cancel your subscription?')) return;
+    const handleCancelOrder = async (orderId, totalAmount) => {
+        // Calculate refund amount (80% after 20% cancellation fee)
+        const cancellationFee = totalAmount * 0.20;
+        const refundAmount = totalAmount * 0.80;
+
+        const confirmMessage = `⚠️ Cancellation Fee: 20% (₹${cancellationFee.toFixed(2)})\n\n` +
+            `You will receive ₹${refundAmount.toFixed(2)} refund to your bank account.\n\n` +
+            `Are you sure you want to cancel this order?`;
+
+        if (!window.confirm(confirmMessage)) return;
 
         try {
             const config = {
@@ -53,81 +62,27 @@ const Orders = () => {
                     Authorization: `Bearer ${localStorage.getItem('token')}`,
                 },
             };
-            await axios.post('http://localhost:5000/api/subscriptions/cancel', { subscriptionId }, config);
-            showNotification('Subscription cancelled successfully.', 'success');
+
+            const response = await axios.put(
+                `http://localhost:5000/api/orders/${orderId}/cancel`,
+                {},
+                config
+            );
+
+            showNotification(
+                `Order cancelled. ₹${response.data.refundAmount.toFixed(2)} sent to your bank account`,
+                'success'
+            );
+
             // Refresh orders
             const res = await axios.get('http://localhost:5000/api/orders/myorders', config);
             setOrders(res.data);
         } catch (error) {
-            console.error('Error cancelling subscription:', error);
-            showNotification('Failed to cancel subscription.', 'error');
-        }
-    };
-
-    const handleRenewSubscription = async (subscriptionId) => {
-        try {
-            const config = {
-                headers: {
-                    Authorization: `Bearer ${localStorage.getItem('token')}`,
-                },
-            };
-
-            // 1. Initiate Renewal
-            const { data: orderData } = await axios.post(
-                'http://localhost:5000/api/subscriptions/renew-init',
-                { subscriptionId },
-                config
+            console.error('Error cancelling order:', error);
+            showNotification(
+                error.response?.data?.message || 'Failed to cancel order',
+                'error'
             );
-
-            // 2. Open Razorpay Checkout
-            const options = {
-                key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-                amount: orderData.amount,
-                currency: orderData.currency,
-                name: "Payal's Kitchen",
-                description: "Subscription Renewal",
-                order_id: orderData.orderId,
-                handler: async function (response) {
-                    try {
-                        // 3. Verify Renewal
-                        await axios.post(
-                            'http://localhost:5000/api/subscriptions/renew-verify',
-                            {
-                                razorpay_order_id: response.razorpay_order_id,
-                                razorpay_payment_id: response.razorpay_payment_id,
-                                razorpay_signature: response.razorpay_signature,
-                                subscriptionId: subscriptionId,
-                            },
-                            config
-                        );
-                        showNotification('Subscription renewed successfully!', 'success');
-                        // Refresh orders
-                        const res = await axios.get('http://localhost:5000/api/orders/myorders', config);
-                        setOrders(res.data);
-                    } catch (error) {
-                        console.error('Renewal verification failed:', error);
-                        showNotification('Renewal verification failed. Please contact support.', 'error');
-                    }
-                },
-                prefill: {
-                    name: user.name,
-                    email: user.email,
-                },
-                theme: {
-                    color: '#ea580c',
-                },
-            };
-
-            const rzp1 = new window.Razorpay(options);
-            rzp1.on('payment.failed', function (response) {
-                showNotification(response.error.description, 'error');
-            });
-            rzp1.open();
-
-        } catch (error) {
-            console.error('Error initiating renewal:', error);
-            const errorMessage = error.response?.data?.message || 'Failed to initiate renewal. Please try again.';
-            showNotification(errorMessage, 'error');
         }
     };
 
@@ -144,7 +99,19 @@ const Orders = () => {
     return (
         <div className="bg-gray-50 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <h2 className="text-3xl font-extrabold text-gray-900 mb-8">Order History</h2>
+                <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Order History</h2>
+
+                {/* Cancellation Policy Warning */}
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8">
+                    <div className="flex">
+                        <AlertCircle className="h-5 w-5 text-yellow-400" />
+                        <div className="ml-3">
+                            <p className="text-sm text-yellow-700 font-medium">
+                                Cancellation Policy: Canceling an order will cost -20% of the total amount.
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
                 {filteredOrders.length === 0 ? (
                     <div className="text-center py-10 text-gray-500">No orders found.</div>
@@ -169,27 +136,17 @@ const Orders = () => {
                                             {order.status}
                                         </span>
 
-                                        {/* Subscription Actions */}
-                                        {order.type === 'subscription_purchase' && order.subscription && (
-                                            <div>
-                                                {order.subscription.status === 'Active' && (
-                                                    <button
-                                                        onClick={() => handleCancelSubscription(order.subscription._id)}
-                                                        className="ml-4 px-3 py-1 border border-red-600 text-red-600 rounded-md text-sm hover:bg-red-50"
-                                                    >
-                                                        Cancel Subscription
-                                                    </button>
-                                                )}
-                                                {(order.subscription.status === 'Cancelled' || order.subscription.status === 'Expired') && (
-                                                    <button
-                                                        onClick={() => handleRenewSubscription(order.subscription._id)}
-                                                        className="ml-4 px-3 py-1 border border-green-600 text-green-600 rounded-md text-sm hover:bg-green-50"
-                                                    >
-                                                        Renew Subscription
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
+                                        {/* Cancel Button for Event and Single Tiffin Orders */}
+                                        {(order.type === 'event' || order.type === 'single') &&
+                                            order.status !== 'Cancelled' &&
+                                            order.status !== 'Delivered' && (
+                                                <button
+                                                    onClick={() => handleCancelOrder(order._id, order.totalAmount)}
+                                                    className="ml-4 px-3 py-1 border border-red-600 text-red-600 rounded-md text-sm hover:bg-red-50 transition-colors"
+                                                >
+                                                    Cancel Order
+                                                </button>
+                                            )}
                                     </div>
                                 </div>
                                 <div className="border-t border-gray-200 px-4 py-5 sm:p-0">

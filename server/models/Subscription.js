@@ -8,6 +8,14 @@ const subscriptionSchema = mongoose.Schema({
     status: { type: String, enum: ['Active', 'Expired', 'Cancelled'], default: 'Active' },
     paymentId: { type: String },
     amountPaid: { type: Number },
+    mealType: { type: String, enum: ['both', 'lunch', 'dinner'], default: 'both' },
+    deliveryAddress: {
+        street: String,
+        city: String,
+        state: String,
+        zip: String,
+        country: String
+    }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Subscription', subscriptionSchema);

@@ -209,6 +209,57 @@ const verifyPayment = async (req, res) => {
     }
 };
 
+// @desc    Cancel Order (User)
+// @route   PUT /api/orders/:id/cancel
+// @access  Private (User can cancel their own orders)
+const cancelOrder = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        // Check if user owns this order
+        if (order.user.toString() !== req.user._id.toString()) {
+            return res.status(401).json({ message: 'Not authorized to cancel this order' });
+        }
+
+        // Only allow cancellation for event and single tiffin orders
+        if (order.type !== 'event' && order.type !== 'single') {
+            return res.status(400).json({ message: 'Only event and custom tiffin orders can be cancelled' });
+        }
+
+        // Cannot cancel already cancelled or delivered orders
+        if (order.status === 'Cancelled') {
+            return res.status(400).json({ message: 'Order is already cancelled' });
+        }
+
+        if (order.status === 'Delivered') {
+            return res.status(400).json({ message: 'Cannot cancel delivered orders' });
+        }
+
+        // Calculate refund (80% of total amount, 20% cancellation fee)
+        const cancellationFee = order.totalAmount * 0.20;
+        const refundAmount = order.totalAmount * 0.80;
+
+        // Update order status
+        order.status = 'Cancelled';
+        await order.save();
+
+        res.json({
+            message: 'Order cancelled successfully',
+            refundAmount: refundAmount,
+            cancellationFee: cancellationFee,
+            order
+        });
+
+    } catch (error) {
+        console.error('Error cancelling order:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 module.exports = {
     createOrder,
     getMyOrders,
@@ -217,4 +268,5 @@ module.exports = {
     getOrders,
     createRazorpayOrder,
     verifyPayment,
+    cancelOrder,
 };

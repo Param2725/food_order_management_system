@@ -11,10 +11,18 @@ const MySubscription = () => {
     const navigate = useNavigate();
 
     const [subscription, setSubscription] = useState(null);
-    const [availableUpgrades, setAvailableUpgrades] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [availableUpgrades, setAvailableUpgrades] = useState([]);
     const [processingRenew, setProcessingRenew] = useState(false);
     const [processingUpgrade, setProcessingUpgrade] = useState(false);
+    const [selectedUpgradePlan, setSelectedUpgradePlan] = useState(null);
+    const [upgradeMealType, setUpgradeMealType] = useState('both');
+    const [upgradeDeliveryAddress, setUpgradeDeliveryAddress] = useState({
+        street: '',
+        city: '',
+        zip: '',
+        country: 'India'
+    });
 
     useEffect(() => {
         if (!user) {
@@ -119,7 +127,43 @@ const MySubscription = () => {
         }
     };
 
-    const handleUpgrade = async (newPlan) => {
+    const handleInitiateUpgrade = (plan) => {
+        setSelectedUpgradePlan(plan);
+        setUpgradeMealType('both');
+        // Pre-fill address from current subscription if available
+        if (subscription && subscription.deliveryAddress) {
+            setUpgradeDeliveryAddress({
+                street: subscription.deliveryAddress.street || '',
+                city: subscription.deliveryAddress.city || '',
+                zip: subscription.deliveryAddress.zip || '',
+                country: subscription.deliveryAddress.country || 'India'
+            });
+        } else {
+            setUpgradeDeliveryAddress({ street: '', city: '', zip: '', country: 'India' });
+        }
+    };
+
+    const handleConfirmUpgrade = async () => {
+        if (!selectedUpgradePlan) return;
+
+        if (!upgradeDeliveryAddress.street || !upgradeDeliveryAddress.city || !upgradeDeliveryAddress.zip) {
+            showNotification('Please fill in all address fields.', 'error');
+            return;
+        }
+
+        // Calculate estimated upgrade price for validation (client-side check)
+        let priceMultiplier = 1;
+        if (upgradeMealType === 'lunch' || upgradeMealType === 'dinner') {
+            priceMultiplier = 0.5;
+        }
+        const newPlanTotal = selectedUpgradePlan.price * priceMultiplier;
+        const estimatedUpgradePrice = Math.max(0, newPlanTotal - subscription.amountPaid);
+
+        if (estimatedUpgradePrice === 0 && newPlanTotal < subscription.amountPaid) {
+            showNotification('Cannot downgrade to a cheaper plan option.', 'error');
+            return;
+        }
+
         setProcessingUpgrade(true);
         try {
             const config = {
@@ -129,7 +173,11 @@ const MySubscription = () => {
             // Initiate upgrade
             const { data: orderData } = await axios.post(
                 'http://localhost:5000/api/subscriptions/upgrade-init',
-                { newPlanId: newPlan._id },
+                {
+                    newPlanId: selectedUpgradePlan._id,
+                    newMealType: upgradeMealType,
+                    newDeliveryAddress: upgradeDeliveryAddress
+                },
                 config
             );
 
@@ -139,7 +187,7 @@ const MySubscription = () => {
                 amount: orderData.amount,
                 currency: orderData.currency,
                 name: "Payal's Kitchen",
-                description: `Upgrade to ${newPlan.name} ${newPlan.duration}`,
+                description: `Upgrade to ${selectedUpgradePlan.name} ${selectedUpgradePlan.duration}`,
                 order_id: orderData.orderId,
                 handler: async function (response) {
                     try {
@@ -151,12 +199,15 @@ const MySubscription = () => {
                                 razorpay_signature: response.razorpay_signature,
                                 currentSubscriptionId: orderData.currentSubscriptionId,
                                 newPlanId: orderData.newPlanId,
+                                newMealType: upgradeMealType,
+                                newDeliveryAddress: upgradeDeliveryAddress
                             },
                             config
                         );
 
                         showNotification('Subscription upgraded successfully!', 'success');
                         fetchSubscriptionData();
+                        setSelectedUpgradePlan(null); // Close modal
                     } catch (error) {
                         console.error('Upgrade verification failed:', error);
                         showNotification('Payment verification failed. Please contact support.', 'error');
@@ -245,16 +296,22 @@ const MySubscription = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 py-12">
+        <div className="min-h-screen bg-gray-50 py-12 relative">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-3xl font-extrabold text-gray-900 mb-8">My Subscription</h2>
 
                 {/* Current Subscription Card */}
                 <div className="bg-white shadow-lg rounded-lg overflow-hidden mb-8">
                     <div className="bg-gradient-to-r from-orange-500 to-red-600 px-6 py-4">
-                        <h3 className="text-2xl font-bold text-white">
-                            {subscription.plan.name} Plan ({subscription.plan.duration})
-                        </h3>
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-2xl font-bold text-white">
+                                {subscription.plan?.name || 'Unknown'} Plan ({subscription.plan?.duration || 'N/A'})
+                            </h3>
+                            <span className="bg-white text-orange-600 px-3 py-1 rounded-full text-sm font-bold shadow-sm">
+                                {subscription.mealType === 'both' ? 'Lunch + Dinner' :
+                                    subscription.mealType === 'lunch' ? 'Lunch Only' : 'Dinner Only'}
+                            </span>
+                        </div>
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mt-2 ${subscription.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                             }`}>
                             {subscription.status}
@@ -262,7 +319,7 @@ const MySubscription = () => {
                     </div>
 
                     <div className="p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                             <div>
                                 <p className="text-sm text-gray-500 flex items-center">
                                     <Calendar className="h-4 w-4 mr-1" /> Start Date
@@ -286,6 +343,14 @@ const MySubscription = () => {
                             <div>
                                 <p className="text-sm text-gray-500">Price Paid</p>
                                 <p className="text-lg font-semibold text-gray-900">₹{subscription.amountPaid}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-gray-500">Delivery Address</p>
+                                <p className="text-sm font-medium text-gray-900">
+                                    {subscription.deliveryAddress ?
+                                        `${subscription.deliveryAddress.street}, ${subscription.deliveryAddress.city}, ${subscription.deliveryAddress.zip}` :
+                                        'Not provided'}
+                                </p>
                             </div>
                         </div>
 
@@ -340,14 +405,12 @@ const MySubscription = () => {
                                         <p className="text-sm text-gray-600 mb-4 capitalize">{plan.duration}</p>
 
                                         <div className="mb-4">
-                                            <p className="text-sm text-gray-500 line-through">Original: ₹{plan.originalPrice}</p>
-                                            <p className="text-sm text-green-600">Discount: -₹{plan.discount}</p>
-                                            <p className="text-2xl font-bold text-orange-600 mt-2">₹{plan.upgradePrice}</p>
-                                            <p className="text-xs text-gray-500 mt-1">Upgrade price after discount</p>
+                                            <p className="text-sm text-gray-500">Base Price: ₹{plan.price}</p>
+                                            <p className="text-xs text-gray-500 mt-1">Select meal options to see final upgrade price</p>
                                         </div>
 
                                         <button
-                                            onClick={() => handleUpgrade(plan)}
+                                            onClick={() => handleInitiateUpgrade(plan)}
                                             disabled={processingUpgrade}
                                             className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
                                         >
@@ -361,6 +424,141 @@ const MySubscription = () => {
                     </div>
                 )}
             </div>
+
+            {/* Upgrade Modal */}
+            {selectedUpgradePlan && (
+                <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={() => setSelectedUpgradePlan(null)}></div>
+                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                            <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                <div className="sm:flex sm:items-start">
+                                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                                        <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                                            Customize Upgrade
+                                        </h3>
+                                        <div className="mt-2">
+                                            <p className="text-sm text-gray-500 mb-4">
+                                                Upgrade to: <span className="font-semibold">{selectedUpgradePlan.name} ({selectedUpgradePlan.duration})</span>
+                                            </p>
+
+                                            {/* Meal Type Selection */}
+                                            <div className="mb-6">
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Select Meal Option</label>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center">
+                                                        <input
+                                                            id="upgrade-both"
+                                                            name="upgradeMealType"
+                                                            type="radio"
+                                                            checked={upgradeMealType === 'both'}
+                                                            onChange={() => setUpgradeMealType('both')}
+                                                            className="focus:ring-orange-500 h-4 w-4 text-orange-600 border-gray-300"
+                                                        />
+                                                        <label htmlFor="upgrade-both" className="ml-3 block text-sm font-medium text-gray-700">
+                                                            Both (Lunch + Dinner) - <span className="font-bold">₹{selectedUpgradePlan.price}</span>
+                                                        </label>
+                                                    </div>
+                                                    <div className="flex items-center">
+                                                        <input
+                                                            id="upgrade-lunch"
+                                                            name="upgradeMealType"
+                                                            type="radio"
+                                                            checked={upgradeMealType === 'lunch'}
+                                                            onChange={() => setUpgradeMealType('lunch')}
+                                                            className="focus:ring-orange-500 h-4 w-4 text-orange-600 border-gray-300"
+                                                        />
+                                                        <label htmlFor="upgrade-lunch" className="ml-3 block text-sm font-medium text-gray-700">
+                                                            Lunch Only - <span className="font-bold">₹{selectedUpgradePlan.price * 0.5}</span>
+                                                        </label>
+                                                    </div>
+                                                    <div className="flex items-center">
+                                                        <input
+                                                            id="upgrade-dinner"
+                                                            name="upgradeMealType"
+                                                            type="radio"
+                                                            checked={upgradeMealType === 'dinner'}
+                                                            onChange={() => setUpgradeMealType('dinner')}
+                                                            className="focus:ring-orange-500 h-4 w-4 text-orange-600 border-gray-300"
+                                                        />
+                                                        <label htmlFor="upgrade-dinner" className="ml-3 block text-sm font-medium text-gray-700">
+                                                            Dinner Only - <span className="font-bold">₹{selectedUpgradePlan.price * 0.5}</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Address Input */}
+                                            <div className="mb-4">
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Delivery Address</label>
+                                                <div className="space-y-3">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Street Address"
+                                                        value={upgradeDeliveryAddress.street}
+                                                        onChange={(e) => setUpgradeDeliveryAddress({ ...upgradeDeliveryAddress, street: e.target.value })}
+                                                        className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                                                    />
+                                                    <div className="flex space-x-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="City"
+                                                            value={upgradeDeliveryAddress.city}
+                                                            onChange={(e) => setUpgradeDeliveryAddress({ ...upgradeDeliveryAddress, city: e.target.value })}
+                                                            className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="ZIP Code"
+                                                            value={upgradeDeliveryAddress.zip}
+                                                            onChange={(e) => setUpgradeDeliveryAddress({ ...upgradeDeliveryAddress, zip: e.target.value })}
+                                                            className="shadow-sm focus:ring-orange-500 focus:border-orange-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Price Summary */}
+                                            <div className="bg-gray-50 p-3 rounded-md mb-4">
+                                                <div className="flex justify-between text-sm">
+                                                    <span>New Plan Total:</span>
+                                                    <span className="font-semibold">₹{(selectedUpgradePlan.price * (upgradeMealType === 'both' ? 1 : 0.5))}</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm text-green-600">
+                                                    <span>Less Amount Paid:</span>
+                                                    <span>-₹{subscription.amountPaid}</span>
+                                                </div>
+                                                <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between font-bold text-lg">
+                                                    <span>Upgrade Cost:</span>
+                                                    <span>₹{Math.max(0, (selectedUpgradePlan.price * (upgradeMealType === 'both' ? 1 : 0.5)) - subscription.amountPaid)}</span>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmUpgrade}
+                                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-orange-600 text-base font-medium text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 sm:ml-3 sm:w-auto sm:text-sm"
+                                >
+                                    Proceed to Payment
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedUpgradePlan(null)}
+                                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

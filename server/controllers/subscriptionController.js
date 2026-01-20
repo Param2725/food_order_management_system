@@ -15,7 +15,7 @@ const razorpay = new Razorpay({
 // @route   POST /api/subscriptions
 // @access  Private
 const buySubscription = async (req, res) => {
-    const { planId } = req.body;
+    const { planId, mealType } = req.body; // mealType: 'both', 'lunch', 'dinner'
 
     try {
         const plan = await Plan.findById(planId);
@@ -23,8 +23,19 @@ const buySubscription = async (req, res) => {
             return res.status(404).json({ message: 'Plan not found' });
         }
 
+        let priceMultiplier = 1;
+        if (mealType === 'lunch' || mealType === 'dinner') {
+            priceMultiplier = 0.5;
+        }
+
+        const finalPrice = plan.price * priceMultiplier;
+
+        if (finalPrice < 1) {
+            return res.status(400).json({ message: 'Order amount must be at least ₹1' });
+        }
+
         const options = {
-            amount: plan.price * 100, // Amount in paise
+            amount: finalPrice * 100, // Amount in paise
             currency: 'INR',
             receipt: `receipt_order_${Date.now()}`,
         };
@@ -36,6 +47,7 @@ const buySubscription = async (req, res) => {
             amount: order.amount,
             currency: order.currency,
             planId: plan._id,
+            mealType: mealType || 'both'
         });
     } catch (error) {
         console.error('Error creating Razorpay order:', error);
@@ -47,7 +59,7 @@ const buySubscription = async (req, res) => {
 // @route   POST /api/subscriptions/verify
 // @access  Private
 const verifySubscriptionPayment = async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId, mealType, deliveryAddress } = req.body;
 
     try {
         // Verify signature
@@ -72,6 +84,14 @@ const verifySubscriptionPayment = async (req, res) => {
             endDate.setFullYear(endDate.getFullYear() + 1);
         }
 
+        // Calculate amount paid based on mealType
+        let priceMultiplier = 1;
+        const selectedMealType = mealType || 'both';
+        if (selectedMealType === 'lunch' || selectedMealType === 'dinner') {
+            priceMultiplier = 0.5;
+        }
+        const amountPaid = plan.price * priceMultiplier;
+
         const subscription = new Subscription({
             user: req.user._id,
             plan: plan._id,
@@ -79,7 +99,9 @@ const verifySubscriptionPayment = async (req, res) => {
             endDate,
             status: 'Active',
             paymentId: razorpay_payment_id,
-            amountPaid: plan.price,
+            amountPaid: amountPaid,
+            mealType: selectedMealType,
+            deliveryAddress: deliveryAddress
         });
 
         const createdSubscription = await subscription.save();
@@ -90,20 +112,23 @@ const verifySubscriptionPayment = async (req, res) => {
         await user.save();
 
         // Create Order record
+        const mealTypeLabel = selectedMealType === 'both' ? 'Lunch + Dinner' : selectedMealType.charAt(0).toUpperCase() + selectedMealType.slice(1);
+
         const order = new Order({
             user: req.user._id,
             items: [{
-                name: `${plan.name} Plan (${plan.duration})`,
+                name: `${plan.name} Plan (${plan.duration}) - ${mealTypeLabel}`,
                 quantity: 1,
-                price: plan.price
+                price: amountPaid
             }],
-            totalAmount: plan.price,
+            totalAmount: amountPaid,
             status: 'Confirmed',
             type: 'subscription_purchase',
             deliveryDate: new Date(),
             paymentStatus: 'Paid',
             paymentId: razorpay_payment_id,
-            subscription: createdSubscription._id // Link to subscription
+            subscription: createdSubscription._id,
+            deliveryAddress: deliveryAddress
         });
 
         await order.save();
@@ -277,17 +302,22 @@ const verifyRenewal = async (req, res) => {
 // @access  Private
 const getMySubscription = async (req, res) => {
     try {
+        console.log('Fetching subscription for user:', req.user._id);
         const subscription = await Subscription.findOne({
             user: req.user._id,
             status: 'Active',
         }).populate('plan');
 
+        console.log('Found subscription:', subscription);
+
         if (subscription) {
             res.json(subscription);
         } else {
+            console.log('No active subscription found for user');
             res.status(404).json({ message: 'No active subscription found' });
         }
     } catch (error) {
+        console.error('Error in getMySubscription:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
@@ -405,7 +435,7 @@ const getAvailableUpgrades = async (req, res) => {
 // @route   POST /api/subscriptions/upgrade-init
 // @access  Private
 const upgradeSubscription = async (req, res) => {
-    const { newPlanId } = req.body;
+    const { newPlanId, newMealType, newDeliveryAddress } = req.body;
 
     try {
         const currentSubscription = await Subscription.findOne({
@@ -424,7 +454,7 @@ const upgradeSubscription = async (req, res) => {
 
         const currentPlan = currentSubscription.plan;
 
-        // Validate upgrade
+        // Validate upgrade (Tier/Duration check)
         const tierMap = { 'Basic': 1, 'Premium': 2, 'Exotic': 3 };
         const durationMap = { 'monthly': 1, 'yearly': 2 };
 
@@ -436,12 +466,39 @@ const upgradeSubscription = async (req, res) => {
         const isHigherTier = newTier > currentTier;
         const isSameTierLongerDuration = (newTier === currentTier) && (newDuration > currentDuration);
 
+        // Also allow same tier/duration if upgrading from single meal to both?
+        // e.g. Basic Monthly Lunch -> Basic Monthly Both
+        // But the plan ID would be the same. The frontend should handle "Modify Subscription" for that?
+        // The user said "upgrade only".
+        // If plan IDs are different, it's a plan change.
+        // If plan IDs are same, it's a meal type change (which we might not support via "upgrade" route if ID is same).
+        // But let's assume newPlanId is passed.
+
         if (!isHigherTier && !isSameTierLongerDuration) {
-            return res.status(400).json({ message: 'Can only upgrade to higher tier or longer duration. Downgrades not allowed.' });
+            // Check if it's same plan but upgrading meal type (e.g. Lunch -> Both)
+            // This requires us to check if newPlanId === currentPlan._id
+            if (newPlanId !== currentPlan._id.toString()) {
+                return res.status(400).json({ message: 'Can only upgrade to higher tier or longer duration.' });
+            }
         }
 
+        // Calculate new plan price based on meal type
+        let priceMultiplier = 1;
+        if (newMealType === 'lunch' || newMealType === 'dinner') {
+            priceMultiplier = 0.5;
+        }
+        const newPlanTotal = newPlan.price * priceMultiplier;
+
         // Calculate upgrade price
-        const upgradePrice = Math.max(0, newPlan.price - currentSubscription.amountPaid);
+        const upgradePrice = Math.max(0, newPlanTotal - currentSubscription.amountPaid);
+
+        if (upgradePrice === 0 && newPlanTotal < currentSubscription.amountPaid) {
+            return res.status(400).json({ message: 'Cannot downgrade to a cheaper plan option.' });
+        }
+
+        if (upgradePrice < 1) {
+            return res.status(400).json({ message: 'Upgrade amount must be at least ₹1' });
+        }
 
         // Create Razorpay order
         const options = {
@@ -459,7 +516,9 @@ const upgradeSubscription = async (req, res) => {
             currentSubscriptionId: currentSubscription._id,
             newPlanId: newPlan._id,
             upgradePrice,
-            discount: currentSubscription.amountPaid
+            discount: currentSubscription.amountPaid,
+            newMealType: newMealType || 'both',
+            newDeliveryAddress
         });
 
     } catch (error) {
@@ -472,7 +531,7 @@ const upgradeSubscription = async (req, res) => {
 // @route   POST /api/subscriptions/upgrade-verify
 // @access  Private
 const verifyUpgrade = async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, currentSubscriptionId, newPlanId } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, currentSubscriptionId, newPlanId, newMealType, newDeliveryAddress } = req.body;
 
     try {
         // Verify signature
@@ -513,6 +572,14 @@ const verifyUpgrade = async (req, res) => {
             endDate.setFullYear(endDate.getFullYear() + 1);
         }
 
+        // Calculate amount paid
+        let priceMultiplier = 1;
+        const selectedMealType = newMealType || 'both';
+        if (selectedMealType === 'lunch' || selectedMealType === 'dinner') {
+            priceMultiplier = 0.5;
+        }
+        const newAmountPaid = newPlan.price * priceMultiplier;
+
         // Create new subscription
         const newSubscription = new Subscription({
             user: req.user._id,
@@ -521,7 +588,9 @@ const verifyUpgrade = async (req, res) => {
             endDate,
             status: 'Active',
             paymentId: razorpay_payment_id,
-            amountPaid: newPlan.price, // Full price of new plan
+            amountPaid: newAmountPaid,
+            mealType: selectedMealType,
+            deliveryAddress: newDeliveryAddress || currentSubscription.deliveryAddress // Use new or fallback to old (if we had it, but old might not have it)
         });
 
         await newSubscription.save();
@@ -532,11 +601,13 @@ const verifyUpgrade = async (req, res) => {
         await user.save();
 
         // Create Order record
-        const upgradePrice = Math.max(0, newPlan.price - currentSubscription.amountPaid);
+        const upgradePrice = Math.max(0, newAmountPaid - currentSubscription.amountPaid);
+        const mealTypeLabel = selectedMealType === 'both' ? 'Lunch + Dinner' : selectedMealType.charAt(0).toUpperCase() + selectedMealType.slice(1);
+
         const order = new Order({
             user: req.user._id,
             items: [{
-                name: `Upgrade to ${newPlan.name} Plan (${newPlan.duration})`,
+                name: `Upgrade to ${newPlan.name} Plan (${newPlan.duration}) - ${mealTypeLabel}`,
                 quantity: 1,
                 price: upgradePrice
             }],
@@ -546,7 +617,8 @@ const verifyUpgrade = async (req, res) => {
             deliveryDate: new Date(),
             paymentStatus: 'Paid',
             paymentId: razorpay_payment_id,
-            subscription: newSubscription._id
+            subscription: newSubscription._id,
+            deliveryAddress: newDeliveryAddress || currentSubscription.deliveryAddress
         });
 
         await order.save();
